@@ -31,7 +31,7 @@ func speechless() {
 func TestTask(t *testing.T) {
 	s := &service{}
 	taskInvoker := &TaskInvoker{
-		functions: map[string]reflect.Value{
+		Functions: map[string]reflect.Value{
 			"SayHi":      reflect.ValueOf(s.SayHi),
 			"SayHello":   reflect.ValueOf(s.SayHello),
 			"Say":        reflect.ValueOf(s.Say),
@@ -41,7 +41,7 @@ func TestTask(t *testing.T) {
 	}
 	task := NewTask("SayHi", "world")
 	taskId := task.Serialization()
-	workerTask := &WorkerTask{taskId}
+	workerTask := NewWorkerTask(taskId)
 	result := taskInvoker.Call(*workerTask)
 	if !result {
 		t.Fatalf("Task %v fail", task)

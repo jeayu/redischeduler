@@ -51,12 +51,12 @@ type Invoker interface {
 }
 
 type TaskInvoker struct {
-	functions map[string]reflect.Value
+	Functions map[string]reflect.Value
 }
 
 func (i *TaskInvoker) Call(workerTask WorkerTask) bool {
 	task := workerTask.Deserialization()
-	if f, ok := i.functions[task.Function]; ok {
+	if f, ok := i.Functions[task.Function]; ok {
 		args := make([]reflect.Value, len(task.Args))
 		for i, a := range task.Args {
 			args[i] = reflect.ValueOf(a)

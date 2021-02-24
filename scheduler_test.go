@@ -42,4 +42,6 @@ func TestPartitionScheduler(t *testing.T) {
 	if taskCountdown != -2*time.Nanosecond {
 		t.Fatalf("RemoveTask fail!")
 	}
+
+	scheduler.ScheduleTask(task, duration)
 }

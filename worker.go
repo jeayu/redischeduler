@@ -22,10 +22,15 @@ type PartitionChannel struct {
 
 func (c *PartitionChannel) Run() {
 	for {
-		found := c.findTask()
-		c.logger.Println("PartitionChannel find task:", found)
+		taskId, found, err := c.findTask()
+		if err != nil {
+			c.logger.Printf("PartitionChannel find task eror:%v\n", err)
+		}
 		if !found {
 			time.Sleep(c.sleep)
+		} else {
+			c.logger.Println("PartitionChannel task has found:", taskId)
+			c.Channel <- *NewWorkerTask(taskId)
 		}
 	}
 }
@@ -43,12 +48,10 @@ func NewPartitionChannel(pr *PartitionRedis, sleep time.Duration, logger *log.Lo
 	return pc
 }
 
-func (c *PartitionChannel) findTask() bool {
-	found := false
+func (c *PartitionChannel) findTask() (taskId string, found bool, err error) {
 	ctx := context.Background()
 	partitionKey := c.partitionRedis.Node()
-	var taskId string
-	err := c.partitionRedis.client.Watch(ctx, func(tx *redis.Tx) error {
+	err = c.partitionRedis.client.Watch(ctx, func(tx *redis.Tx) error {
 		values := c.partitionRedis.client.ZRangeByScore(ctx, partitionKey, &redis.ZRangeBy{
 			Min:    "0",
 			Max:    fmt.Sprint(time.Now().UnixNano() / 1e6),
@@ -60,27 +63,17 @@ func (c *PartitionChannel) findTask() bool {
 			return nil
 		}
 		taskId = values[0]
-		cmder, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			pipe.ZRem(ctx, partitionKey, taskId)
+		var val *redis.IntCmd
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			val = pipe.ZRem(ctx, partitionKey, taskId)
 			pipe.Del(ctx, taskId)
 			return nil
 		})
-		for _, c := range cmder {
-			if c.Err() != nil {
-				err = c.Err()
-			}
-		}
-		found = true
+		found = val.Val() == 1
 		return err
 	}, partitionKey)
-	if err != nil {
-		return false
-	}
 
-	if found {
-		c.Channel <- *NewWorkerTask(taskId)
-	}
-	return found
+	return taskId, found, err
 }
 
 type SinglePartitionWorker struct {

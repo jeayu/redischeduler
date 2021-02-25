@@ -8,19 +8,46 @@ import (
 
 func TestPartitionScheduler(t *testing.T) {
 	partitionSize := 2
-	partitionShards := 4
-	var clients []*PartitionRedis
-	for partition := StartPartition; partition <= partitionSize; partition++ {
-		for sharding := StartSharding; sharding <= partitionShards; sharding++ {
-			t.Log("start init PartitionRedis, partition", partition, "sharding", sharding)
-			client := redis.NewClient(&redis.Options{
-				Addr: "localhost:6379",
-				DB:   sharding,
-			})
-			clients = append(clients, NewPartitionRedis(partition, sharding, partitionShards, client))
-		}
+
+	clientOptions := []*redis.Options{
+		// partition 1
+		{
+			Addr: "localhost:6379",
+			DB:   1,
+		},
+		{
+			Addr: "localhost:6379",
+			DB:   2,
+		},
+		{
+			Addr: "localhost:6379",
+			DB:   3,
+		},
+		{
+			Addr: "localhost:6379",
+			DB:   4,
+		},
+		// partition 2
+		{
+			Addr: "localhost:6379",
+			DB:   1,
+		},
+		{
+			Addr: "localhost:6379",
+			DB:   2,
+		},
+		{
+			Addr: "localhost:6379",
+			DB:   3,
+		},
+		{
+			Addr: "localhost:6379",
+			DB:   4,
+		},
 	}
-	partitions := NewPartitions(partitionSize, partitionShards, clients)
+	partitionRedisConfigs := NewSchedulerPartitionRedisConfigs(clientOptions, partitionSize)
+	clients := NewPartitionRedisSlice(partitionRedisConfigs)
+	partitions := NewPartitions(partitionSize, clients)
 
 	scheduler := NewPartitionScheduler(partitions, nil, nil)
 	task := NewTask("SayHi", "world")
@@ -43,5 +70,8 @@ func TestPartitionScheduler(t *testing.T) {
 		t.Fatalf("RemoveTask fail!")
 	}
 
+	scheduler.ScheduleTask(task, duration)
+
+	task = NewTask("SayHi", "world5")
 	scheduler.ScheduleTask(task, duration)
 }

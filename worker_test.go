@@ -5,7 +5,6 @@ import (
 	"github.com/go-redis/redis/v8"
 	"reflect"
 	"testing"
-	"time"
 )
 
 func sayHi(name string) {
@@ -17,37 +16,51 @@ func say(v ...interface{}) {
 }
 
 func TestSinglePartitionWorker(t *testing.T) {
-	partition := StartPartition
 	partitionSize := 2
-	partitionShards := 4
-	var clients []*PartitionRedis
-	var partitionChannels = make([]*PartitionChannel, partitionShards)
+	testWorker(StartPartition, partitionSize, t)
+	testWorker(StartPartition+1, partitionSize, t)
 
-	for sharding := StartSharding; sharding <= partitionShards; sharding++ {
-		t.Log("Start init PartitionRedis, partition", partition, "sharding", sharding)
-		client := redis.NewClient(&redis.Options{
+}
+
+func testWorker(partitionId, partitionSize int, t *testing.T) {
+	clientOptions := []*redis.Options{
+		{
 			Addr: "localhost:6379",
-			DB:   sharding,
-		})
-		pr := NewPartitionRedis(partition, sharding, partitionShards, client)
-		clients = append(clients, pr)
-		partitionChannels[sharding-StartSharding] = NewPartitionChannel(pr, 1*time.Second, nil)
-	}
-	singlePartition := NewSinglePartition(partition, partitionSize, partitionShards, clients)
-
-	taskInvoker := &TaskInvoker{
-		Functions: map[string]reflect.Value{
-			"SayHi": reflect.ValueOf(sayHi),
-			"Say":   reflect.ValueOf(say),
+			DB:   1,
+		},
+		{
+			Addr: "localhost:6379",
+			DB:   2,
+		},
+		{
+			Addr: "localhost:6379",
+			DB:   3,
+		},
+		{
+			Addr: "localhost:6379",
+			DB:   4,
 		},
 	}
-
-	worker := NewSinglePartitionWorker(singlePartition, partitionChannels, taskInvoker, nil)
-	worker.Run(func() {
-		worker.Logger.Println("Run SinglePartitionWorker", worker.Partition.Id)
+	worker, err := NewSinglePartitionWorker(&SinglePartitionWorkerConfig{
+		PartitionId:          partitionId,
+		PartitionSize:        partitionSize,
+		PartitionRedisConfig: NewPartitionRedisConfigs(clientOptions, partitionId),
+		TaskInvoker: &TaskInvoker{
+			Functions: map[string]reflect.Value{
+				"SayHi": reflect.ValueOf(sayHi),
+				"Say":   reflect.ValueOf(say),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal("NewWorker error:", err)
+		return
+	}
+	worker.RunFunc(func() {
+		worker.Logger.Println("Run SinglePartitionWorker! Partition id:", worker.Partition.Id)
 		cases := make([]reflect.SelectCase, len(worker.PartitionChannels))
 		for i, partitionChannel := range worker.PartitionChannels {
-			worker.Logger.Println("Run partitionChannel", i+1)
+			worker.Logger.Println("Run partitionChannel", partitionChannel.partitionRedis.Node())
 			go partitionChannel.Run()
 			cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(partitionChannel.Channel)}
 
@@ -70,7 +83,6 @@ func TestSinglePartitionWorker(t *testing.T) {
 				worker.Logger.Printf("The chosen channel %v invoker error: %v\n", cases[chosen], err)
 			}
 			return
-
 		}
 	})
 }

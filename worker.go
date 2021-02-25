@@ -2,15 +2,17 @@ package redischeduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v8"
 	"log"
 	"os"
+	"reflect"
 	"time"
 )
 
 type Worker interface {
-	Run(f func())
+	Run()
 }
 
 type PartitionChannel struct {
@@ -83,20 +85,71 @@ type SinglePartitionWorker struct {
 	Logger            *log.Logger
 }
 
-func NewSinglePartitionWorker(partitions *Partition, partitionChannels []*PartitionChannel, taskInvoker Invoker, logger *log.Logger) *SinglePartitionWorker {
-	w := &SinglePartitionWorker{
-		Partition:         partitions,
+type SinglePartitionWorkerConfig struct {
+	PartitionId          int
+	PartitionSize        int
+	PartitionRedisConfig []*PartitionRedisConfig
+	TaskInvoker          Invoker
+	Logger               *log.Logger
+}
+
+func NewSinglePartitionWorker(config *SinglePartitionWorkerConfig) (w *SinglePartitionWorker, err error) {
+	if config.TaskInvoker == nil {
+		err = errors.New("TaskInvoker is nil!")
+	}
+	if config.Logger == nil {
+		config.Logger = log.New(os.Stdout, "SinglePartitionWorker ", log.LstdFlags)
+	}
+
+	partitionShards := len(config.PartitionRedisConfig)
+	var partitionChannels = make([]*PartitionChannel, partitionShards)
+	for i, c := range config.PartitionRedisConfig {
+		config.Logger.Println("Start init PartitionRedis, partitionId", c.PartitionId, "shardingId", c.ShardingId)
+		pr := NewPartitionRedis(config.PartitionRedisConfig[i])
+		partitionChannels[i] = NewPartitionChannel(pr, 1*time.Second, config.Logger)
+	}
+
+	singlePartition := NewSinglePartition(config.PartitionId, config.PartitionSize, partitionShards)
+
+	w = &SinglePartitionWorker{
+		Partition:         singlePartition,
 		PartitionChannels: partitionChannels,
-		TaskInvoker:       taskInvoker,
-		Logger:            logger,
+		TaskInvoker:       config.TaskInvoker,
+		Logger:            config.Logger,
 	}
-	if logger == nil {
-		w.Logger = log.New(os.Stdout, "SinglePartitionWorker ", log.LstdFlags)
-	}
-	return w
+	return w, err
 
 }
 
-func (s *SinglePartitionWorker) Run(f func()) {
+func (w *SinglePartitionWorker) Run() {
+	w.Logger.Println("Run SinglePartitionWorker! Partition id:", w.Partition.Id)
+	cases := make([]reflect.SelectCase, len(w.PartitionChannels))
+	for i, partitionChannel := range w.PartitionChannels {
+		w.Logger.Println("Run partitionChannel", partitionChannel.partitionRedis.Node())
+		go partitionChannel.Run()
+		cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(partitionChannel.Channel)}
+
+	}
+	for len(cases) > 0 {
+		chosen, value, ok := reflect.Select(cases)
+		if !ok {
+			w.Logger.Printf("The chosen channel %v has been closed\n", cases[chosen])
+			cases[chosen].Chan = reflect.ValueOf(nil)
+			continue
+		}
+		defer func() {
+			if r := recover(); r != nil {
+				w.Logger.Printf("The chosen channel %v error: %v\n", cases[chosen], r)
+			}
+		}()
+		workerTask := value.Interface().(WorkerTask)
+		err := w.TaskInvoker.Call(workerTask)
+		if err != nil {
+			w.Logger.Printf("The chosen channel %v invoker error: %v\n", cases[chosen], err)
+		}
+	}
+}
+
+func (s *SinglePartitionWorker) RunFunc(f func()) {
 	f()
 }

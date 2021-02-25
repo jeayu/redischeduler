@@ -24,7 +24,7 @@ func TestSinglePartitionWorker(t *testing.T) {
 	var partitionChannels = make([]*PartitionChannel, partitionShards)
 
 	for sharding := StartSharding; sharding <= partitionShards; sharding++ {
-		t.Log("start init PartitionRedis, partition", partition, "sharding", sharding)
+		t.Log("Start init PartitionRedis, partition", partition, "sharding", sharding)
 		client := redis.NewClient(&redis.Options{
 			Addr: "localhost:6379",
 			DB:   sharding,
@@ -44,28 +44,31 @@ func TestSinglePartitionWorker(t *testing.T) {
 
 	worker := NewSinglePartitionWorker(singlePartition, partitionChannels, taskInvoker, nil)
 	worker.Run(func() {
-		worker.logger.Println("run SinglePartitionWorker", worker.partition.Id)
-		cases := make([]reflect.SelectCase, len(worker.partitionChannels))
-		for i, partitionChannel := range worker.partitionChannels {
-			worker.logger.Println("run partitionChannel", i+1)
+		worker.Logger.Println("Run SinglePartitionWorker", worker.Partition.Id)
+		cases := make([]reflect.SelectCase, len(worker.PartitionChannels))
+		for i, partitionChannel := range worker.PartitionChannels {
+			worker.Logger.Println("Run partitionChannel", i+1)
 			go partitionChannel.Run()
-			cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(partitionChannel.channel)}
+			cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(partitionChannel.Channel)}
 
 		}
 		for len(cases) > 0 {
 			chosen, value, ok := reflect.Select(cases)
 			if !ok {
-				worker.logger.Printf("The chosen channel %v has been closed\n", cases[chosen])
+				worker.Logger.Printf("The chosen channel %v has been closed\n", cases[chosen])
 				cases[chosen].Chan = reflect.ValueOf(nil)
 				continue
 			}
 			defer func() {
 				if r := recover(); r != nil {
-					worker.logger.Printf("The chosen channel %v error: %v\n", cases[chosen], r)
+					worker.Logger.Printf("The chosen channel %v error: %v\n", cases[chosen], r)
 				}
 			}()
 			workerTask := value.Interface().(WorkerTask)
-			worker.taskInvoker.Call(workerTask)
+			err := worker.TaskInvoker.Call(workerTask)
+			if err != nil {
+				worker.Logger.Printf("The chosen channel %v invoker error: %v\n", cases[chosen], err)
+			}
 			return
 
 		}

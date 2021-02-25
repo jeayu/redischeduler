@@ -42,53 +42,77 @@ func TestTask(t *testing.T) {
 	task := NewTask("SayHi", "world")
 	taskId := task.Serialization()
 	workerTask := NewWorkerTask(taskId)
-	result := taskInvoker.Call(*workerTask)
-	if !result {
-		t.Fatalf("Task %v fail", task)
+	err := taskInvoker.Call(*workerTask)
+	if err != nil {
+		t.Fatalf("Task %v fail! err:%v\n", task, err)
 	}
 
 	task = NewTask("SayHello", "world")
 	taskId = task.Serialization()
 	workerTask = &WorkerTask{taskId}
-	result = taskInvoker.Call(*workerTask)
-	if !result {
-		t.Fatalf("Task %v fail", task)
+	err = taskInvoker.Call(*workerTask)
+	if err != nil {
+		t.Fatalf("Task %v fail! err:%v\n", task, err)
 	}
 
 	task = NewTask("Say", "world", 1, true)
 	taskId = task.Serialization()
 	workerTask = &WorkerTask{taskId}
-	result = taskInvoker.Call(*workerTask)
-	if !result {
-		t.Fatalf("Task %v fail", task)
+	err = taskInvoker.Call(*workerTask)
+	if err != nil {
+		t.Fatalf("Task %v fail! err:%v\n", task, err)
 	}
 
 	task = NewTask("Haha", "world")
 	taskId = task.Serialization()
 	workerTask = &WorkerTask{taskId}
-	result = taskInvoker.Call(*workerTask)
-	if !result {
-		t.Fatalf("Task %v fail", task)
+	err = taskInvoker.Call(*workerTask)
+	if err != nil {
+		t.Fatalf("Task %v fail! err:%v\n", task, err)
 	}
 
 	task = NewTask("speechless")
 	taskId = task.Serialization()
 	workerTask = &WorkerTask{taskId}
-	result = taskInvoker.Call(*workerTask)
-	if !result {
-		t.Fatalf("Task %v fail", task)
+	err = taskInvoker.Call(*workerTask)
+	if err != nil {
+		t.Fatalf("Task %v fail! err:%v\n", task, err)
 	}
 
+}
+
+func TestTaskInvokerError(t *testing.T) {
+	taskInvoker := &TaskInvoker{
+		Functions: map[string]reflect.Value{
+			"HaHa":       reflect.ValueOf(HaHa),
+			"speechless": reflect.ValueOf(speechless),
+		},
+	}
+	task := NewTask("SayHello", "world")
+	taskId := task.Serialization()
+	workerTask := NewWorkerTask(taskId)
+	err := taskInvoker.Call(*workerTask)
+	if err != nil {
+		t.Logf("Task %v fail! err:%v\n", task, err)
+	}
+
+	task = NewTask("HaHa", "world", 1, 2, 3)
+	taskId = task.Serialization()
+	workerTask = NewWorkerTask(taskId)
+	err = taskInvoker.Call(*workerTask)
+	if err != nil {
+		t.Logf("Task %v fail! err:%v\n", task, err)
+	}
 }
 
 type customInvoker struct {
 	function func(args ...interface{})
 }
 
-func (i *customInvoker) Call(workerTask WorkerTask) bool {
+func (i *customInvoker) Call(workerTask WorkerTask) error {
 	task := workerTask.Deserialization()
 	i.function(task.Args)
-	return true
+	return nil
 }
 
 func TestTaskInvoker(t *testing.T) {
@@ -100,8 +124,8 @@ func TestTaskInvoker(t *testing.T) {
 	task := NewTask("test", "world", 1, true)
 	taskId := task.Serialization()
 	workerTask := NewWorkerTask(taskId)
-	result := invoker.Call(*workerTask)
-	if !result {
-		t.Fatalf("Task %v fail", task)
+	err := invoker.Call(*workerTask)
+	if err != nil {
+		t.Fatalf("Task %v fail! err:%v\n", task, err)
 	}
 }

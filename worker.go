@@ -15,7 +15,7 @@ type Worker interface {
 
 type PartitionChannel struct {
 	partitionRedis *PartitionRedis
-	channel        chan WorkerTask
+	Channel        chan WorkerTask
 	sleep          time.Duration
 	logger         *log.Logger
 }
@@ -33,7 +33,7 @@ func (c *PartitionChannel) Run() {
 func NewPartitionChannel(pr *PartitionRedis, sleep time.Duration, logger *log.Logger) *PartitionChannel {
 	pc := &PartitionChannel{
 		partitionRedis: pr,
-		channel:        make(chan WorkerTask),
+		Channel:        make(chan WorkerTask),
 		sleep:          sleep,
 		logger:         logger,
 	}
@@ -78,29 +78,28 @@ func (c *PartitionChannel) findTask() bool {
 	}
 
 	if found {
-		c.channel <- *NewWorkerTask(taskId)
+		c.Channel <- *NewWorkerTask(taskId)
 	}
 	return found
 }
 
 type SinglePartitionWorker struct {
-	partition         *Partition
-	partitionChannels []*PartitionChannel
-	taskInvoker       Invoker
-	logger            *log.Logger
+	Partition         *Partition
+	PartitionChannels []*PartitionChannel
+	TaskInvoker       Invoker
+	Logger            *log.Logger
 }
 
 func NewSinglePartitionWorker(partitions *Partition, partitionChannels []*PartitionChannel, taskInvoker Invoker, logger *log.Logger) *SinglePartitionWorker {
 	w := &SinglePartitionWorker{
-		partition:         partitions,
-		partitionChannels: partitionChannels,
-		taskInvoker:       taskInvoker,
-		logger:            logger,
+		Partition:         partitions,
+		PartitionChannels: partitionChannels,
+		TaskInvoker:       taskInvoker,
+		Logger:            logger,
 	}
 	if logger == nil {
-		w.logger = log.New(os.Stdout, "SinglePartitionWorker ", log.LstdFlags)
+		w.Logger = log.New(os.Stdout, "SinglePartitionWorker ", log.LstdFlags)
 	}
-
 	return w
 
 }

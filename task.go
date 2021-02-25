@@ -3,6 +3,7 @@ package redischeduler
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 )
@@ -47,14 +48,14 @@ func (t *WorkerTask) Deserialization() *Task {
 }
 
 type Invoker interface {
-	Call(task WorkerTask) bool
+	Call(task WorkerTask) (err error)
 }
 
 type TaskInvoker struct {
 	Functions map[string]reflect.Value
 }
 
-func (i *TaskInvoker) Call(workerTask WorkerTask) bool {
+func (i *TaskInvoker) Call(workerTask WorkerTask) (err error) {
 	task := workerTask.Deserialization()
 	if f, ok := i.Functions[task.Function]; ok {
 		args := make([]reflect.Value, len(task.Args))
@@ -63,12 +64,12 @@ func (i *TaskInvoker) Call(workerTask WorkerTask) bool {
 		}
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("Task %v error: %v\n", task, r)
+				err = errors.New(fmt.Sprintf("Invoker task %v error: %v", task, r))
 			}
 		}()
-		return f.Call(args) == nil
+		f.Call(args)
 	} else {
-		fmt.Printf("Task %v function not found!\n", task)
-		return false
+		err = errors.New(fmt.Sprintf("Invoker task %v error: Function not found!", task))
 	}
+	return err
 }

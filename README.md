@@ -1,4 +1,4 @@
-# Redischeduler [![Build Status](https://api.travis-ci.com/jeayu/redischeduler.svg?branch=main)](https://travis-ci.com/github/jeayu/redischeduler) [![Coverage Status](https://coveralls.io/repos/github/jeayu/redischeduler/badge.svg?branch=main)](https://coveralls.io/github/jeayu/redischeduler?branch=main)
+# Redischeduler [![Build Status](https://api.travis-ci.com/jeayu/redischeduler.svg?branch=main)](https://travis-ci.com/github/jeayu/redischeduler) [![Coverage Status](https://coveralls.io/repos/github/jeayu/redischeduler/badge.svg?branch=main&kill_cache=1)](https://coveralls.io/github/jeayu/redischeduler?branch=main)
 
 Redischeduler is a distributed job scheduler written in Go.
 

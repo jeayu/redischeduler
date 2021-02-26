@@ -1,10 +1,14 @@
 language: go
-
 go:
   - 1.14.x
-  -
 services:
   - redis-server
-
+before_install:
+  - go get golang.org/x/tools/cmd/cover
+  - go get github.com/mattn/goveralls
 script:
-  - go test ./...
+  go test -v -covermode=count -coverprofile=coverage.out
+  goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN
+env:
+  global:
+    secure: K2w2T+GHuUx3OfO1pYVPqPAwAs+N4l3409F5El5lzIjD7B+4XlVZEACOLDeG5FklEKq8YiGE2q/fNR7AyMnuxzlW4MJHGjBoRY31joz0Fp9au3oEEiuIwypRR2AoRnai0GGbZnzqPP914hUiF6nNmen1hzxpZdqW+Em4rot+VsHgWmNBjgxIaI6DAVNyEixY45jG9qdfIbJMh2Un5vRA56tQK7PZkws25wNbMEktfRX1EDnH0+D6d5BGen3wAyGR/abXkRlvC9qmrJDhl+LV98+Gk8Ng/L/0dUdokRKB6ypIj2q7qBzvcdBYguf8AqlGo1eECZ6mcUN1NsdusRP6K+ytIBc5mwpUdtK12YNejByIGNB5UOi0hMKWtVp9V6gpA5ww94+d9mhqtLO2+XIK4oPfdZjb2w70Aa30qtCmVb/9hoAUsopXu0rDk6U4DxuJ+wcUcVHF+Rl8fhieSENz+IFnqYIo9d5JVXsatxi24fBBDaqN6Qyop1RAt/8bjhXz9nbMZAw9LZwHzDKE0vY2ziqSX4KuGAxhtAS8y+nEjN49ehQdwuvrhw8SFFGlVs6o2jDrCOBoWIK+tYf7kAGbnHZKlnPmsFRxfvznUDSRBn9pQAZdwkxwyQyBN3s9o0Lf96CHho8zIoH9+UWzdNMkBsXBV4xNndPuf2904D3Txz8=

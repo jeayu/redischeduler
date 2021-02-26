@@ -34,17 +34,16 @@ func NewWorkerTask(taskId string) *WorkerTask {
 	return &WorkerTask{taskId}
 }
 
-func (t *WorkerTask) Deserialization() *Task {
+func (t *WorkerTask) Deserialization() (task *Task, err error) {
 	b, err := base64.StdEncoding.DecodeString(t.TaskId)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	task := &Task{}
-	err = json.Unmarshal(b, task)
+	err = json.Unmarshal(b, &task)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return task
+	return task, err
 }
 
 type Invoker interface {
@@ -56,7 +55,10 @@ type TaskInvoker struct {
 }
 
 func (i *TaskInvoker) Call(workerTask WorkerTask) (err error) {
-	task := workerTask.Deserialization()
+	task, err := workerTask.Deserialization()
+	if err != nil {
+		return err
+	}
 	if f, ok := i.Functions[task.Function]; ok {
 		args := make([]reflect.Value, len(task.Args))
 		for i, a := range task.Args {

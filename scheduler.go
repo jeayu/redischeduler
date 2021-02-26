@@ -6,14 +6,13 @@ import (
 	"hash/crc32"
 	"log"
 	"math"
-	"os"
 	"time"
 )
 
 type Scheduler interface {
-	ScheduleTask(task *Task, duration time.Duration)
-	RemoveTask(task *Task)
-	GetTaskCountdown(task *Task) time.Duration
+	ScheduleTask(task *Task, duration time.Duration) (err error)
+	RemoveTask(task *Task) (err error)
+	GetTaskCountdown(task *Task) (duration time.Duration, err error)
 }
 
 type PartitionSchedulerRules struct {
@@ -46,14 +45,11 @@ func NewPartitionScheduler(partitions *Partition, partitionRules PartitionRules,
 			PartitionShards: partitions.PartitionShards,
 		}
 	}
-	if logger == nil {
-		s.logger = log.New(os.Stdout, "PartitionScheduler", log.LstdFlags)
-	}
 	return s
 
 }
 
-func (r *PartitionScheduler) ScheduleTask(task *Task, duration time.Duration) {
+func (r *PartitionScheduler) ScheduleTask(task *Task, duration time.Duration) (err error) {
 	currentTime := time.Now().UnixNano() / 1e6
 	triggerTime := currentTime + duration.Milliseconds()
 
@@ -62,62 +58,43 @@ func (r *PartitionScheduler) ScheduleTask(task *Task, duration time.Duration) {
 	client := r.partitions.Client(partition, sharding)
 
 	taskKey := task.Serialization()
-	var ctx = context.Background()
-	var result []redis.Cmder
-	err := client.Watch(ctx, func(tx *redis.Tx) error {
+	ctx := context.Background()
+	if r.logger != nil {
+		r.logger.Println("ScheduleTask", task, "at:", partitionShardingName)
+	}
+	err = client.Watch(ctx, func(tx *redis.Tx) error {
 		scheduleKey := client.Get(ctx, taskKey).Val()
-		r, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 			pipe.ZRem(ctx, scheduleKey, taskKey)
 			pipe.SetEX(ctx, taskKey, partitionShardingName, duration)
 			pipe.ZAdd(ctx, partitionShardingName, &redis.Z{float64(triggerTime), taskKey})
 			return nil
 		})
-		result = r
 		return err
 	}, taskKey)
-	if err == redis.TxFailedErr {
-		r.logger.Fatalln("ScheduleTask TxFailedErr!", err)
-	} else if result == nil || len(result) < 1 {
-		r.logger.Fatalln("ScheduleTask fail!")
-	} else {
-		for _, res := range result {
-			if res.Err() != nil {
-				r.logger.Fatalln("ScheduleTask fail! err:", res)
-			}
-		}
-	}
-
+	return err
 }
 
-func (r *PartitionScheduler) RemoveTask(task *Task) {
+func (r *PartitionScheduler) RemoveTask(task *Task) (err error) {
 	partition, sharding := r.partitionRules.Partitioning(task)
 	client := r.partitions.Client(partition, sharding)
 
 	taskKey := task.Serialization()
 
-	var ctx = context.Background()
-	result, err := client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+	ctx := context.Background()
+	_, err = client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
 		scheduleKey := pipe.Get(ctx, taskKey).Val()
 		pipe.ZRem(ctx, scheduleKey, taskKey)
 		pipe.Del(ctx, taskKey)
 		return nil
 	})
-	if err != nil {
-		r.logger.Fatalln("RemoveTask err!", err)
-	} else if result == nil || len(result) < 1 {
-		r.logger.Fatalln("RemoveTask fail!")
-	} else {
-		for _, res := range result {
-			if res.Err() != nil {
-				r.logger.Fatalln("RemoveTask fail! err:", res)
-			}
-		}
-	}
+	return err
 }
 
-func (r *PartitionScheduler) GetTaskCountdown(task *Task) time.Duration {
+func (r *PartitionScheduler) GetTaskCountdown(task *Task) (duration time.Duration, err error) {
 	partition, sharding := r.partitionRules.Partitioning(task)
 	client := r.partitions.Client(partition, sharding)
 	taskKey := task.Serialization()
-	return client.TTL(client.Context(), taskKey).Val()
+	ttl := client.TTL(client.Context(), taskKey)
+	return ttl.Val(), ttl.Err()
 }

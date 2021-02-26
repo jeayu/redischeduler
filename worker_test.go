@@ -3,8 +3,11 @@ package redischeduler
 import (
 	"fmt"
 	"github.com/go-redis/redis/v8"
+	"log"
+	"os"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func sayHi(name string) {
@@ -15,14 +18,26 @@ func say(v ...interface{}) {
 	fmt.Println("Say:", v)
 }
 
+func TestNewSinglePartitionWorkerError(t *testing.T) {
+	_, err := NewSinglePartitionWorker(&SinglePartitionWorkerConfig{})
+	if err != nil {
+		t.Log("NewWorker error:", err)
+	}
+}
 func TestSinglePartitionWorker(t *testing.T) {
 	partitionSize := 2
-	testWorker(StartPartition, partitionSize, t)
-	testWorker(StartPartition+1, partitionSize, t)
+	var logger *log.Logger
+	worker := newWorker(StartPartition, partitionSize, logger, t)
+	testRunWorker(worker)
+
+	logger = log.New(os.Stdout, "SinglePartitionWorker2 ", log.LstdFlags)
+	worker = newWorker(StartPartition+1, partitionSize, logger, t)
+
+	testMultiWorkerRun(worker)
 
 }
 
-func testWorker(partitionId, partitionSize int, t *testing.T) {
+func newWorker(partitionId, partitionSize int, logger *log.Logger, t *testing.T) *SinglePartitionWorker {
 	clientOptions := []*redis.Options{
 		{
 			Addr: "localhost:6379",
@@ -51,38 +66,37 @@ func testWorker(partitionId, partitionSize int, t *testing.T) {
 				"Say":   reflect.ValueOf(say),
 			},
 		},
+		Logger: logger,
 	})
 	if err != nil {
 		t.Fatal("NewWorker error:", err)
-		return
+		return nil
+	}
+	return worker
+
+}
+
+func testRunWorker(worker *SinglePartitionWorker) {
+	for _, c := range worker.PartitionChannels {
+		go closePartitionChannel(c.Channel)
 	}
 	worker.RunFunc(func() {
-		worker.Logger.Println("Run SinglePartitionWorker! Partition id:", worker.Partition.Id)
-		cases := make([]reflect.SelectCase, len(worker.PartitionChannels))
-		for i, partitionChannel := range worker.PartitionChannels {
-			worker.Logger.Println("Run partitionChannel", partitionChannel.partitionRedis.Node())
-			go partitionChannel.Run()
-			cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(partitionChannel.Channel)}
+		worker.Run()
+	})
+}
 
-		}
-		for len(cases) > 0 {
-			chosen, value, ok := reflect.Select(cases)
-			if !ok {
-				worker.Logger.Printf("The chosen channel %v has been closed\n", cases[chosen])
-				cases[chosen].Chan = reflect.ValueOf(nil)
-				continue
-			}
-			defer func() {
-				if r := recover(); r != nil {
-					worker.Logger.Printf("The chosen channel %v error: %v\n", cases[chosen], r)
-				}
-			}()
-			workerTask := value.Interface().(WorkerTask)
-			err := worker.TaskInvoker.Call(workerTask)
-			if err != nil {
-				worker.Logger.Printf("The chosen channel %v invoker error: %v\n", cases[chosen], err)
-			}
-			return
-		}
+func closePartitionChannel(channel chan<- WorkerTask) {
+	time.Sleep(2 * time.Second)
+	close(channel)
+}
+
+func testMultiWorkerRun(worker *SinglePartitionWorker) {
+	for _, c := range worker.PartitionChannels {
+		go closePartitionChannel(c.Channel)
+		// mock redis: transaction failed
+		go c.Run()
+	}
+	worker.RunFunc(func() {
+		worker.Run()
 	})
 }

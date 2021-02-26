@@ -95,7 +95,7 @@ type SinglePartitionWorkerConfig struct {
 
 func NewSinglePartitionWorker(config *SinglePartitionWorkerConfig) (w *SinglePartitionWorker, err error) {
 	if config.TaskInvoker == nil {
-		err = errors.New("TaskInvoker is nil!")
+		err = errors.New("TaskInvoker undefined!")
 	}
 	if config.Logger == nil {
 		config.Logger = log.New(os.Stdout, "SinglePartitionWorker ", log.LstdFlags)
@@ -106,7 +106,7 @@ func NewSinglePartitionWorker(config *SinglePartitionWorkerConfig) (w *SinglePar
 	for i, c := range config.PartitionRedisConfig {
 		config.Logger.Println("Start init PartitionRedis, partitionId", c.PartitionId, "shardingId", c.ShardingId)
 		pr := NewPartitionRedis(config.PartitionRedisConfig[i])
-		partitionChannels[i] = NewPartitionChannel(pr, 1*time.Second, config.Logger)
+		partitionChannels[i] = NewPartitionChannel(pr, 1*time.Second, nil)
 	}
 
 	singlePartition := NewSinglePartition(config.PartitionId, config.PartitionSize, partitionShards)
@@ -135,13 +135,9 @@ func (w *SinglePartitionWorker) Run() {
 		if !ok {
 			w.Logger.Printf("The chosen channel %v has been closed\n", cases[chosen])
 			cases[chosen].Chan = reflect.ValueOf(nil)
+			cases = append(cases[:chosen], cases[chosen+1:]...)
 			continue
 		}
-		defer func() {
-			if r := recover(); r != nil {
-				w.Logger.Printf("The chosen channel %v error: %v\n", cases[chosen], r)
-			}
-		}()
 		workerTask := value.Interface().(WorkerTask)
 		err := w.TaskInvoker.Call(workerTask)
 		if err != nil {

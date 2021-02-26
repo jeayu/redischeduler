@@ -143,8 +143,8 @@ func NewSinglePartition(id, size, partitionShards int) *Partition {
 	return p
 }
 
-func (p *Partition) Client(partition, sharding int) *redis.Client {
-	if c, ok := p.clientMap[PartitionShardingName(partition, sharding)]; ok {
+func (p *Partition) Client(partitionId, shardingId int) *redis.Client {
+	if c, ok := p.clientMap[PartitionShardingName(partitionId, shardingId)]; ok {
 		return c.client
 	}
 	return nil

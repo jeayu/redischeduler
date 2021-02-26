@@ -1,6 +1,7 @@
 package redischeduler
 
 import (
+	"encoding/base64"
 	"fmt"
 	"reflect"
 	"testing"
@@ -103,6 +104,12 @@ func TestTaskInvokerError(t *testing.T) {
 	if err != nil {
 		t.Logf("Task %v fail! err:%v\n", task, err)
 	}
+
+	workerTask = NewWorkerTask("123")
+	err = taskInvoker.Call(*workerTask)
+	if err != nil {
+		t.Logf("Call workerTask %v fail! err:%v\n", workerTask, err)
+	}
 }
 
 type customInvoker struct {
@@ -110,9 +117,9 @@ type customInvoker struct {
 }
 
 func (i *customInvoker) Call(workerTask WorkerTask) error {
-	task := workerTask.Deserialization()
+	task, err := workerTask.Deserialization()
 	i.function(task.Args)
-	return nil
+	return err
 }
 
 func TestTaskInvoker(t *testing.T) {
@@ -127,5 +134,19 @@ func TestTaskInvoker(t *testing.T) {
 	err := invoker.Call(*workerTask)
 	if err != nil {
 		t.Fatalf("Task %v fail! err:%v\n", task, err)
+	}
+}
+
+func TestWorkerTaskDeserializeError(t *testing.T) {
+	workerTask := NewWorkerTask("123")
+	_, err := workerTask.Deserialization()
+	if err != nil {
+		t.Logf("WorkerTask.%v Deserialization fail! err:%v\n", workerTask, err)
+	}
+
+	workerTask = NewWorkerTask(base64.StdEncoding.EncodeToString([]byte("123")))
+	_, err = workerTask.Deserialization()
+	if err != nil {
+		t.Logf("WorkerTask.%v Deserialization fail! err:%v\n", workerTask, err)
 	}
 }

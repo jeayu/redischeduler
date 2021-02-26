@@ -52,6 +52,19 @@ func TestNewPartitions(t *testing.T) {
 	}
 	p := NewPartitions(partitionSize, clients)
 	t.Log(p)
+	for partition := StartPartition; partition <= partitionSize; partition++ {
+		for sharding := StartSharding; sharding <= partitionShards; sharding++ {
+			client := p.Client(partition, sharding)
+			if client == nil {
+				shardingId := ShardingId(partition, partitionShards, sharding)
+				t.Logf("NewPartitions client is nil, partitionId:%d, shardingId:%d.shardingId should be %d", partition, sharding, shardingId)
+				client = p.Client(partition, shardingId)
+				if client == nil {
+					t.Fatalf("NewPartitions client is nil, partitionId:%d, shardingId:%d", partition, shardingId)
+				}
+			}
+		}
+	}
 }
 
 func TestNewSinglePartitions(t *testing.T) {

@@ -28,16 +28,36 @@ func (p *PartitionSchedulerRules) Partitioning(task *Task) (int, int) {
 }
 
 type PartitionScheduler struct {
-	partitions     *Partition
-	partitionRules PartitionRules
-	logger         *log.Logger
+	partitions         *Partition
+	partitionRules     PartitionRules
+	scheduleTaskScript *redis.Script
+	removeTaskScript   *redis.Script
+	logger             *log.Logger
 }
 
 func NewPartitionScheduler(partitions *Partition, partitionRules PartitionRules, logger *log.Logger) *PartitionScheduler {
 	s := &PartitionScheduler{
 		partitions:     partitions,
 		partitionRules: partitionRules,
-		logger:         logger,
+		scheduleTaskScript: redis.NewScript(`local function scheduleTask(taskKey, partitionKey, triggerTime, duration)
+	redis.replicate_commands()
+	local oldPartitionKey = redis.call("GET", taskKey)
+	if oldPartitionKey then 
+		redis.call("ZREM",oldPartitionKey, taskKey)
+	end
+	redis.call("SETEX", taskKey, duration, partitionKey)
+	return redis.call("ZADD", partitionKey, triggerTime, taskKey)
+end
+return scheduleTask(KEYS[1],KEYS[2],ARGV[1],ARGV[2])`),
+		removeTaskScript: redis.NewScript(`local function removeTask(taskKey)
+	redis.replicate_commands()
+	local partitionKey = redis.call("GET", taskKey)
+	if redis.call("ZREM",partitionKey, taskKey) == 1 then
+		return redis.call("DEL", taskKey)
+	end
+end
+return removeTask(KEYS[1])`),
+		logger: logger,
 	}
 	if partitionRules == nil {
 		s.partitionRules = &PartitionSchedulerRules{
@@ -62,16 +82,10 @@ func (r *PartitionScheduler) ScheduleTask(task *Task, duration time.Duration) (e
 	if r.logger != nil {
 		r.logger.Println("ScheduleTask", task, "at:", partitionShardingName)
 	}
-	err = client.Watch(ctx, func(tx *redis.Tx) error {
-		scheduleKey := client.Get(ctx, taskKey).Val()
-		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			pipe.ZRem(ctx, scheduleKey, taskKey)
-			pipe.SetEX(ctx, taskKey, partitionShardingName, duration)
-			pipe.ZAdd(ctx, partitionShardingName, &redis.Z{float64(triggerTime), taskKey})
-			return nil
-		})
-		return err
-	}, taskKey)
+	cmd := r.scheduleTaskScript.Run(ctx, client, []string{taskKey, partitionShardingName}, []interface{}{triggerTime, duration.Seconds()})
+	if cmd.Err() != redis.Nil {
+		err = cmd.Err()
+	}
 	return err
 }
 
@@ -82,12 +96,10 @@ func (r *PartitionScheduler) RemoveTask(task *Task) (err error) {
 	taskKey := task.Serialization()
 
 	ctx := context.Background()
-	_, err = client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
-		scheduleKey := pipe.Get(ctx, taskKey).Val()
-		pipe.ZRem(ctx, scheduleKey, taskKey)
-		pipe.Del(ctx, taskKey)
-		return nil
-	})
+	cmd := r.removeTaskScript.Run(ctx, client, []string{taskKey})
+	if cmd.Err() != redis.Nil {
+		err = cmd.Err()
+	}
 	return err
 }
 

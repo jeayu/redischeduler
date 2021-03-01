@@ -1,10 +1,10 @@
 package redischeduler
 
 import (
-	"context"
 	"github.com/go-redis/redis/v8"
 	"log"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -104,32 +104,39 @@ func TestPartitionSchedulerTask(t *testing.T) {
 
 }
 
-func scheduleTask(scheduler *PartitionScheduler, t *testing.T, channel chan<- *Task) {
-	for {
-		task := NewTask("error", "1")
-		channel <- task
-		err := scheduler.ScheduleTask(task, 1*time.Hour)
-		if err == redis.TxFailedErr {
-			t.Log("ScheduleTask TxFailedErr!", err)
-			close(channel)
-			return
+func TestConcurrentScheduleTask(t *testing.T) {
+	scheduler := partitionScheduler()
+	scheduler2 := partitionScheduler()
+	channel := make(chan *Task)
+	var wg sync.WaitGroup
+	delta := 1000
+	wg.Add(delta)
+	go func() {
+		wg.Wait()
+		close(channel)
+	}()
+	scheduleTask := func(scheduler *PartitionScheduler) {
+		for delta > 0 {
+			task := NewTask("error", "1")
+			channel <- task
+			delta--
+			wg.Done()
+			err := scheduler.ScheduleTask(task, 1*time.Hour)
+			if err != nil {
+				t.Fatal("TestConcurrent scheduleTask err!", err)
+				close(channel)
+				return
+			}
 		}
 	}
-}
-
-func TestTaskTxFailedErr(t *testing.T) {
-	scheduler := partitionScheduler()
-	channel := make(chan *Task)
-	go scheduleTask(scheduler, t, channel)
+	go scheduleTask(scheduler)
+	go scheduleTask(scheduler2)
 	for {
 		select {
-		case task, ok := <-channel:
+		case _, ok := <-channel:
 			if !ok {
 				return
 			}
-			partitionId, shardingId := scheduler.partitionRules.Partitioning(task)
-			client := scheduler.partitions.Client(partitionId, shardingId)
-			client.Del(context.Background(), task.Serialization())
 		}
 	}
 }

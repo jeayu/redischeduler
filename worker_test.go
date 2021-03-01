@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -29,12 +30,6 @@ func TestSinglePartitionWorker(t *testing.T) {
 	var logger *log.Logger
 	worker := newWorker(StartPartition, partitionSize, logger, t)
 	testRunWorker(worker)
-
-	logger = log.New(os.Stdout, "SinglePartitionWorker2 ", log.LstdFlags)
-	worker = newWorker(StartPartition+1, partitionSize, logger, t)
-
-	testMultiWorkerRun(worker)
-
 }
 
 func newWorker(partitionId, partitionSize int, logger *log.Logger, t *testing.T) *SinglePartitionWorker {
@@ -86,17 +81,45 @@ func testRunWorker(worker *SinglePartitionWorker) {
 }
 
 func closePartitionChannel(channel chan<- WorkerTask) {
-	time.Sleep(2 * time.Second)
+	time.Sleep(1500 * time.Millisecond)
 	close(channel)
 }
 
-func testMultiWorkerRun(worker *SinglePartitionWorker) {
-	for _, c := range worker.PartitionChannels {
-		go closePartitionChannel(c.Channel)
-		// mock redis: transaction failed
-		go c.Run()
+func TestMultiWorkerRun(t *testing.T) {
+	partitionSize := 2
+	var logger *log.Logger
+
+	logger = log.New(os.Stdout, "TestMultiWorkerRun1 ", log.LstdFlags)
+	worker := newWorker(StartPartition+1, partitionSize, logger, t)
+	logger = log.New(os.Stdout, "TestMultiWorkerRun2 ", log.LstdFlags)
+	worker2 := newWorker(StartPartition+1, partitionSize, logger, t)
+
+	var wg sync.WaitGroup
+	delta := 1000
+	wg.Add(delta)
+	runFunc := func(w *SinglePartitionWorker) {
+		for _, c := range w.PartitionChannels {
+			go closePartitionChannel(c.Channel)
+		}
+		w.Run()
 	}
-	worker.RunFunc(func() {
-		worker.Run()
+
+	go worker.RunFunc(func() {
+		runFunc(worker)
 	})
+	worker2.RunFunc(func() {
+		runFunc(worker2)
+	})
+
+}
+
+func TestFindTaskError(t *testing.T) {
+	partitionSize := 2
+	var logger *log.Logger
+	worker := newWorker(StartPartition, partitionSize, logger, t)
+	for _, c := range worker.PartitionChannels {
+		t.Log("Close redis", c.partitionRedis)
+		_ = c.partitionRedis.client.Close()
+	}
+	testRunWorker(worker)
 }

@@ -20,6 +20,7 @@ type PartitionChannel struct {
 	Channel        chan WorkerTask
 	sleep          time.Duration
 	logger         *log.Logger
+	script         *redis.Script
 }
 
 func (c *PartitionChannel) Run() {
@@ -43,6 +44,22 @@ func NewPartitionChannel(pr *PartitionRedis, sleep time.Duration, logger *log.Lo
 		Channel:        make(chan WorkerTask),
 		sleep:          sleep,
 		logger:         logger,
+		script: redis.NewScript(`local function findTask(key)
+	redis.replicate_commands()
+	local t = redis.call('TIME')
+	t = t[1] * 1000 + t[2]/100
+	local tasks = redis.call("ZRANGEBYSCORE",key, 0, t, "limit", 0, 1)
+	if tasks[1] == nil then
+		return nil
+	else
+		if redis.call("ZREM",key, tasks[1]) == 1 then
+			redis.call("DEL", tasks[1])
+			return tasks[1]
+		end
+	end
+	return nil
+end
+return findTask(KEYS[1])`),
 	}
 	if logger == nil {
 		pc.logger = log.New(os.Stdout, fmt.Sprintf("PartitionChannel-%s ", pr.Node()), log.LstdFlags)
@@ -53,28 +70,14 @@ func NewPartitionChannel(pr *PartitionRedis, sleep time.Duration, logger *log.Lo
 func (c *PartitionChannel) findTask() (taskId string, found bool, err error) {
 	ctx := context.Background()
 	partitionKey := c.partitionRedis.Node()
-	err = c.partitionRedis.client.Watch(ctx, func(tx *redis.Tx) error {
-		values := c.partitionRedis.client.ZRangeByScore(ctx, partitionKey, &redis.ZRangeBy{
-			Min:    "0",
-			Max:    fmt.Sprint(time.Now().UnixNano() / 1e6),
-			Offset: 0,
-			Count:  1,
-		}).Val()
-		if values == nil || len(values) == 0 {
-			tx.Unwatch(ctx, partitionKey)
-			return nil
-		}
-		taskId = values[0]
-		var val *redis.IntCmd
-		_, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			val = pipe.ZRem(ctx, partitionKey, taskId)
-			pipe.Del(ctx, taskId)
-			return nil
-		})
-		found = val.Val() == 1
-		return err
-	}, partitionKey)
-
+	cmd := c.script.Run(ctx, c.partitionRedis.client, []string{partitionKey})
+	if cmd.Val() != nil {
+		found = true
+		taskId = cmd.Val().(string)
+	}
+	if cmd.Err() != redis.Nil {
+		err = cmd.Err()
+	}
 	return taskId, found, err
 }
 
